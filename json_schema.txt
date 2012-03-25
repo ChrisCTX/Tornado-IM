@@ -1,44 +1,18 @@
 JSON SCHEMA:
 
-
-
 {
-
   "id": "IM",
-
   "type": "object",
-
   "additionalProperties": false,
-
   "properties": {
-
-    "To": {
-
-      "type": "string"
-
-    },
-
-    "Message": {
-
-      "type": "string"
-
-    }
-
+    "To": { "type": "string" },
+    "Message": { "type": "string" }
   }
-
 }
-
-
-
 
 EXAMPLE OF SCHEMA COMPLIANT IM:
 
-
-
 {
-
   "To": "otheruser",
-
   "Message": "sup dude",
-
 }
