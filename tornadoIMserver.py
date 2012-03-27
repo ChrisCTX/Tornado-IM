@@ -2,6 +2,7 @@ import tornado.ioloop
 import tornado.web
 import tornado.websocket
 import tornado.httpserver
+import json
 
 class Bot:
     """Interface / Abstract Bot, here just for clarity."""
@@ -18,7 +19,7 @@ class EchoBot(Bot):
 
 
 class DirectoryBot(Bot):
-    """Sends a message to the client with a list of all connected directory."""
+    """Sends a message to the client with a list of all connected clients."""
     @staticmethod
     def ProcessMessage(message):
         pass
@@ -70,11 +71,31 @@ class Bijection(dict):
         raise ValueError("The given object could not be found")
 
 
+class Message:
+    """Internal message."""
+    def __init__(target, text):
+        self.target = target
+        self.text = text
+
+class MessageDecoder:
+    """Decodes JSON messages into our internal workable messages."""
+    def decode(raw_message):
+        # TODO: Validate JSON propperly.
+        dic = json.loads(raw_message)
+        message = message(dic["To"], dic["Message"])
+        return message
+
+    def encode(message):
+        # TODO: We should also validate the JSON we create
+        json_message = json.dumps(message)
+        return json_message
+
 class MessageServer(tornado.websocket.WebSocketHandler):
     """Defines how the Server behaves."""
     group_id = 0
     directory = Bijection()
     bots = {"EchoBot" : EchoBot}
+    coder = MessageDecoder()
 
     def open(client):
         """Prints when a client opens a connection."""
@@ -82,23 +103,35 @@ class MessageServer(tornado.websocket.WebSocketHandler):
 
     def on_close(client):
         """Removes client from the directory."""
-        if client in directory.values():
-            username = directory.key_for(client)
+        if client in MessageServer.directory.values():
+            username = MessageServer.directory.key_for(client)
             del MessageServer.directory[username]
             print username + " logged off."
         else:
             pass  # We don't care about unregistered connections closing
 
-    def on_message(client, message):
+    def on_message(client, raw_message):
         """Handles messages sent by clients."""
-        # TODO: Decode message here
-        if client not in directory.values():     # If client isn't registered
+        message = MessageServer.coder.decode(raw_message)
+        # If client isn't registered
+        if client not in MessageServer.directory.values():     
             if message.target is not "NickBot":  # and isn't trying to do so
                 MessageServer.close(client)      # we close his connection
             else:                                # If he's trying to register
                 NickBot.ProcessMessage(message)  # we let NickBot work it out
         else:
-            pass
+            # If client is registered we check who he addresses
+            # Bots are checked first since they extend functionality
+            if message.target in MessageServer.bots:
+                MessageServer.bots[message.target].ProcessMessage(message)
+            # Next we check if he addresses a client
+            elif message.target in MessageServer.directory:
+                # If he does we create a new message for the target
+                # and we send it to them with reference to the sender
+                username = MessageServer.directory.key_for(client)
+                forward_message = Message(username, message.text)
+                json = MessageServer.coder.encode(forward_message)
+                MessageServer.directory[message.target].write_message(json)
 
 
 def main():
