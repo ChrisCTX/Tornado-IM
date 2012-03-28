@@ -4,6 +4,7 @@ import tornado.websocket
 import tornado.httpserver
 import json
 
+
 class Bot:
     """Interface / Abstract Bot, here just for clarity."""
     @staticmethod
@@ -33,6 +34,7 @@ class NickBot(Bot):
         if NickBot.isUsernameAvailable(requested_name):
             NickBot.RegisterClient(requested_name, client)
             NickBot.ConfirmToClient(client)
+            print requested_name + " registered"
     
     @staticmethod    
     def RegisterClient(name, client):
@@ -48,7 +50,7 @@ class NickBot(Bot):
     @staticmethod
     def ConfirmToClient(client):
         username = MessageServer.directory.key_for(client)
-        forward_message = Message("NickServ", "OK")
+        forward_message = {"From" : "NickBot", "Message" : "OK"}
         json = MessageServer.coder.encode(forward_message)
         MessageServer.directory[username].write_message(json)
 
@@ -80,7 +82,7 @@ class GroupBot(Bot):
     @staticmethod
     def ConfirmNameToClient(group_name, client):
         username = MessageServer.directory.key_for(client)
-        forward_message = Message("GroupBot", group_name)
+        forward_message = {"From" : "GroupBot", "Message" : group_name}
         json = MessageServer.coder.encode(forward_message)
         MessageServer.directory[username].write_message(json)
 
@@ -96,20 +98,20 @@ class Bijection(dict):
 
 class Message:
     """Internal message."""
-    def __init__(target, text):
+    def __init__(self, target, text):
         self.target = target
         self.text = text
 
 
 class MessageDecoder:
     """Decodes JSON messages into our internal workable messages."""
-    def decode(raw_message):
+    def decode(self, raw_message):
         # TODO: Validate JSON propperly.
         dic = json.loads(raw_message)
-        message = message(dic["To"], dic["Message"])
+        message = Message(dic["To"], dic["Message"])
         return message
 
-    def encode(message):
+    def encode(self, message):
         # TODO: We should also validate the JSON we create
         json_message = json.dumps(message)
         return json_message
@@ -132,7 +134,7 @@ class MessageServer(tornado.websocket.WebSocketHandler):
         if client in MessageServer.directory.values():
             username = MessageServer.directory.key_for(client)
             del MessageServer.directory[username]
-            print username + " logged off."
+            print username + " connection closing."
         else:
             pass  # We don't care about unregistered connections closing
 
@@ -140,8 +142,8 @@ class MessageServer(tornado.websocket.WebSocketHandler):
         """Handles messages sent by clients."""
         message = MessageServer.coder.decode(raw_message)
         # If client isn't registered
-        if client not in MessageServer.directory.values():     
-            if message.target is not "NickBot":  # and isn't trying to do so
+        if client not in MessageServer.directory.values():  
+            if message.target != "NickBot":  # and isn't trying to do so
                 MessageServer.close(client)      # we close his connection
             else:                                # If he is, NickBot handles it
                 NickBot.ProcessMessage(message, client)
@@ -156,7 +158,8 @@ class MessageServer(tornado.websocket.WebSocketHandler):
             # We then check if it's a group 
             elif message.target in MessageServer.groups:
                 group = MessageServer.groups[message.target]
-                forward_message = Message(message.target, message.text)
+                forward_message = {"From" : message.target, 
+                                   "Message" : message.text}
                 json = MessageServer.coder.encode(forward_message)
                 for member in group:
                     MessageServer.directory[member].write_message(json)
@@ -165,7 +168,7 @@ class MessageServer(tornado.websocket.WebSocketHandler):
                 # If he does we create a new message for the target
                 # and we send it to them with reference to the sender
                 username = MessageServer.directory.key_for(client)
-                forward_message = Message(username, message.text)
+                forward_message = {"From" : username, "Message" : message.text}
                 json = MessageServer.coder.encode(forward_message)
                 MessageServer.directory[message.target].write_message(json)
             else:
