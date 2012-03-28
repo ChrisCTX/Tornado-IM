@@ -28,8 +28,11 @@ class DirectoryBot(Bot):
 class NickBot(Bot):
     """Assigns a username to the client. SERVER ESSENTIAL."""
     @staticmethod    
-    def ProcessMessage(message):
-        pass
+    def ProcessMessage(message, client):
+        requested_name = message.text
+        if NickBot.isUsernameAvailable(requested_name):
+            NickBot.RegisterClient(requested_name, client)
+            NickBot.ConfirmToClient(client)
     
     @staticmethod    
     def RegisterClient(name, client):
@@ -41,6 +44,13 @@ class NickBot(Bot):
             return False
         else:
             return True
+
+    @staticmethod
+    def ConfirmToClient(client):
+        username = MessageServer.directory.key_for(client)
+        forward_message = Message("NickServ", "OK")
+        json = MessageServer.coder.encode(forward_message)
+        MessageServer.directory[username].write_message(json)
 
 
 class GroupBot(Bot):
@@ -117,8 +127,8 @@ class MessageServer(tornado.websocket.WebSocketHandler):
         if client not in MessageServer.directory.values():     
             if message.target is not "NickBot":  # and isn't trying to do so
                 MessageServer.close(client)      # we close his connection
-            else:                                # If he's trying to register
-                NickBot.ProcessMessage(message)  # we let NickBot work it out
+            else:                                # If he is, NickBot handles it
+                NickBot.ProcessMessage(message, client)
         else:
             # If client is registered we check who he addresses
             # Bots are checked first since they extend functionality
