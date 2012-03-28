@@ -56,20 +56,33 @@ class NickBot(Bot):
 class GroupBot(Bot):
     """Creates and manages groups."""
     @staticmethod
-    def ProcessMessage(message):
-        pass
+    def ProcessMessage(message, client):
+        username = MessageServer.directory.key_for(client)
+        members = message.text.split(' ')
+        members.append(username)
+        name = GroupBot.RegisterGroup(members)
+        GroupBot.ConfirmNameToClient(name, client)
 
     @staticmethod
     def RegisterGroup(client_list):
         group = []
         for client in client_list:
-            if client in self.directory:
+            if client in MessageServer.directory:
                 group.append(client)
         if group:  # If group isn't empty
             group_name = "group" + str(MessageServer.group_id)
             MessageServer.group_id = MessageServer.group_id + 1
-            MessageServer.directory[group_name] = group
+            MessageServer.groups[group_name] = group
+            return group_name
+        else:
+            return None
 
+    @staticmethod
+    def ConfirmNameToClient(group_name, client):
+        username = MessageServer.directory.key_for(client)
+        forward_message = Message("GroupBot", group_name)
+        json = MessageServer.coder.encode(forward_message)
+        MessageServer.directory[username].write_message(json)
 
 class Bijection(dict):
     """Bijective dict. Each key maps to only one value (and vice-versa)."""
@@ -87,6 +100,7 @@ class Message:
         self.target = target
         self.text = text
 
+
 class MessageDecoder:
     """Decodes JSON messages into our internal workable messages."""
     def decode(raw_message):
@@ -100,11 +114,13 @@ class MessageDecoder:
         json_message = json.dumps(message)
         return json_message
 
+
 class MessageServer(tornado.websocket.WebSocketHandler):
     """Defines how the Server behaves."""
     group_id = 0
-    directory = Bijection()
-    bots = {"EchoBot" : EchoBot}
+    directory = Bijection()  # Sometimes we know the connection and need a name
+    groups = {}
+    bots = {"GroupBot" : GroupBot}
     coder = MessageDecoder()
 
     def open(client):
@@ -131,9 +147,19 @@ class MessageServer(tornado.websocket.WebSocketHandler):
                 NickBot.ProcessMessage(message, client)
         else:
             # If client is registered we check who he addresses
+            # This Bot > Group > Client heriarchy adds some protection against
+            # clients wanting to use names used by functions (bots or groups)
             # Bots are checked first since they extend functionality
             if message.target in MessageServer.bots:
-                MessageServer.bots[message.target].ProcessMessage(message)
+                bot = message.target
+                MessageServer.bots[bot].ProcessMessage(message, client)
+            # We then check if it's a group 
+            elif message.target in MessageServer.groups:
+                group = MessageServer.groups[message.target]
+                forward_message = Message(message.target, message.text)
+                json = MessageServer.coder.encode(forward_message)
+                for member in group:
+                    MessageServer.directory[member].write_message(json)
             # Next we check if he addresses a client
             elif message.target in MessageServer.directory:
                 # If he does we create a new message for the target
@@ -142,6 +168,8 @@ class MessageServer(tornado.websocket.WebSocketHandler):
                 forward_message = Message(username, message.text)
                 json = MessageServer.coder.encode(forward_message)
                 MessageServer.directory[message.target].write_message(json)
+            else:
+                pass  # We don't care
 
 
 def main():
